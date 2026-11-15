@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Alnor ecoNet (HRU)",
+        "description": "Sign in with your air.alnor.com.pl account. The installation ID (a GUID) and factory number are in the device URL: /i/<installation_id>/details/...",
+        "data": {
+          "email": "Email",
+          "password": "Password",
+          "installation_id": "Installation ID (GUID)",
+          "factory_number": "Factory number"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Authentication failed — check email and password."
+    },
+    "abort": {
+      "already_configured": "This HRU is already configured."
+    }
+  }
+}
