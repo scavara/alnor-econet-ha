@@ -6,8 +6,8 @@
   "dependencies": [],
   "documentation": "https://github.com/scavara/alnor-econet-ha",
   "integration_type": "device",
-  "iot_class": "cloud_polling",
+  "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/scavara/alnor-econet-ha/issues",
   "requirements": ["pycognito==2024.5.1", "boto3", "awsiotsdk"],
-  "version": "0.2.0"
+  "version": "0.3.0"
 }

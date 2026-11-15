@@ -4,10 +4,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 
 SWITCH_TYPES = {
-    "u7074": {"name": "Unit State", "icon": "mdi:power", "on_cmd": "H1L0", "off_cmd": "H0L1", "on_val": "1", "off_val": "0", "read_key": "u7151", "read_bit": 2},
-    "u7073": {"name": "Auto Mode", "icon": "mdi:refresh-auto", "on_cmd": "H1L0", "off_cmd": "H0L1", "on_val": "1", "off_val": "0", "read_key": "u7151", "read_bit": 1},
-    "u6630": {"name": "Schedule Mode", "icon": "mdi:calendar-clock", "on_cmd": "H1L0", "off_cmd": "H0L1", "on_val": "1", "off_val": "0", "read_key": "u7151", "read_bit": 4},
-    "u6240": {"name": "Fireplace Mode", "icon": "mdi:fireplace", "on_cmd": "H0L4", "off_cmd": "H0L1", "on_val": "4", "off_val": "0", "read_key": "u7151", "read_bit": 8},
+    "u7074": {"name": "Unit State", "icon": "mdi:power", "on_cmd": "H1L0", "off_cmd": "H0L1", "on_val": "1", "off_val": "0"},
+    "u7073": {"name": "Auto Mode", "icon": "mdi:refresh-auto", "on_cmd": "H1L0", "off_cmd": "H0L1", "on_val": "1", "off_val": "0"},
+    "u6630": {"name": "Schedule Mode", "icon": "mdi:calendar-clock", "on_cmd": "H1L0", "off_cmd": "H0L1", "on_val": "1", "off_val": "0"},
+    "u6240": {"name": "Fireplace Mode", "icon": "mdi:fireplace", "on_cmd": "H0L4", "off_cmd": "H0L1", "on_val": "4", "off_val": "0"},
 }
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -44,7 +44,7 @@ class AlnorSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def is_on(self):
-        # 1. Check for active optimistic override on the write key (immediate feedback)
+        # Live value of the register, or the optimistic value right after a write.
         write_val = self.coordinator.data.get(self._key)
         if write_val is not None:
             if isinstance(write_val, str) and write_val.startswith("H"):
@@ -57,18 +57,8 @@ class AlnorSwitch(CoordinatorEntity, SwitchEntity):
             except (ValueError, TypeError):
                 return str(write_val) == str(self._conf["on_val"])
                 
-        # 2. Fallback to the real read register from the API bitmask
-        read_key = self._conf.get("read_key")
-        read_bit = self._conf.get("read_bit")
-        if read_key and read_bit:
-            val = self.coordinator.data.get(read_key)
-            if val is not None:
-                try:
-                    return bool(int(float(val)) & read_bit)
-                except (ValueError, TypeError):
-                    pass
-                    
-        return False
+        # State unknown (register is only readable over the live channel).
+        return None
 
     async def async_turn_on(self, **kwargs):
         if not hasattr(self.coordinator, "optimistic_overrides"): 

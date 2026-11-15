@@ -22,7 +22,9 @@ CONF_PASSWORD = "password"  # noqa: S105
 CONF_INSTALLATION_ID = "installation_id"
 CONF_FACTORY_NUMBER = "factory_number"
 
-DEFAULT_SCAN_INTERVAL = 60  # seconds
+# The unit stops pushing live updates ~60 s after the last read, so re-read
+# more often than that to keep them flowing.
+DEFAULT_SCAN_INTERVAL = 45  # seconds
 
 # How far back to query so the latest sample is guaranteed present.
 LOOKBACK_MINUTES = 30

@@ -24,4 +24,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AlnorConfigEntry) -> boo
 
 async def async_unload_entry(hass: HomeAssistant, entry: AlnorConfigEntry) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
+        await entry.runtime_data.async_shutdown()
+    return unloaded

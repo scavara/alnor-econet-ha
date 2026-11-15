@@ -1,12 +1,14 @@
-"""Auth + polling for Alnor ecoNet archives API."""
+"""Data coordinator: live MQTT values with the archives API as fallback."""
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -23,97 +25,33 @@ from .const import (
     REGION,
     USER_POOL_ID,
 )
+from .live import AlnorLiveClient, LiveError
 
 _LOGGER = logging.getLogger(__name__)
 
+# Registers read on every refresh: the mapped sensors plus the control registers.
+READ_REGISTERS = sorted(set(ALL_REGISTERS) | {"u7074", "u7073", "u6630", "u6240", "u84"})
+
+# How long an optimistic (just-written) value may mask a live read.
+OPTIMISTIC_LIVE_SECONDS = 15
 # How long an optimistic (just-written) value may mask the archive value.
 OPTIMISTIC_MAX_SECONDS = 20 * 60  # archive batches arrive every ~15 minutes
 OPTIMISTIC_UNARCHIVED_SECONDS = 5 * 60  # registers the archive never reports
 
 
 class AlnorEconetCoordinator(DataUpdateCoordinator[dict[str, float | int]]):
+    """Keeps the latest value per register.
 
-    def _publish_mqtt_command(self, parameter, value, installation_id, factory_number):
-        import time, json, boto3
-        from pycognito import Cognito
-        from awscrt import io, mqtt, auth
-        from awsiot import mqtt_connection_builder
-        
-        username = self.config_entry.data.get("username", self.config_entry.data.get("email"))
-        password = self.config_entry.data.get("password")
-        
-        cog = Cognito("eu-central-1_que8JCEVH", "3qga0ntgrj7fblcgau24plp2h4", username=username)
-        cog.authenticate(password=password)
-        
-        identity_client = boto3.client('cognito-identity', region_name='eu-central-1')
-        id_resp = identity_client.get_id(
-            IdentityPoolId='eu-central-1:d1f8d4ae-7401-4d69-b603-1e992f635253',
-            Logins={'cognito-idp.eu-central-1.amazonaws.com/eu-central-1_que8JCEVH': cog.id_token}
-        )
-        identity_id = id_resp['IdentityId']
-        
-        cred_resp = identity_client.get_credentials_for_identity(
-            IdentityId=identity_id,
-            Logins={'cognito-idp.eu-central-1.amazonaws.com/eu-central-1_que8JCEVH': cog.id_token}
-        )
-        creds = cred_resp['Credentials']
-        
-        credentials_provider = auth.AwsCredentialsProvider.new_static(
-            access_key_id=creds['AccessKeyId'],
-            secret_access_key=creds['SecretKey'],
-            session_token=creds['SessionToken']
-        )
-        
-        timestamp = int(time.time() * 1000)
-        client_id = f"{identity_id}-{timestamp}"
-        
-        event_loop_group = io.EventLoopGroup(1)
-        host_resolver = io.DefaultHostResolver(event_loop_group)
-        client_bootstrap = io.ClientBootstrap(event_loop_group, host_resolver)
-        
-        mqtt_connection = mqtt_connection_builder.websockets_with_default_aws_signing(
-            endpoint="a24t7r3f2r1nrr-ats.iot.eu-central-1.amazonaws.com",
-            client_bootstrap=client_bootstrap,
-            region="eu-central-1",
-            credentials_provider=credentials_provider,
-            client_id=client_id,
-            clean_session=True,
-            keep_alive_secs=30
-        )
-        
-        mqtt_connection.connect().result()
-        
-        topic = f"{installation_id}/{client_id}/installationRequest"
-        payload = {
-            "transactionId": str(timestamp)[-5:],
-            "operations": [{
-                "name": "PARAMS_MODIFICATION",
-                "targets": [{
-                    "component": factory_number,
-                    "parameters": {parameter: str(value)}
-                }]
-            }]
-        }
-        
-        publish_future, _ = mqtt_connection.publish(
-            topic=topic, payload=json.dumps(payload), qos=mqtt.QoS.AT_LEAST_ONCE
-        )
-        publish_future.result()
-        mqtt_connection.disconnect().result()
-
-    async def async_set_parameter(self, parameter, value, installation_id, factory_number):
-        import asyncio
-        await self.hass.async_add_executor_job(
-            self._publish_mqtt_command, parameter, value, installation_id, factory_number
-        )
-
-
-    """Polls the ecoNet archives API and exposes the latest value per register."""
+    Values come from the live MQTT channel (current, and pushed by the unit as
+    they change). The archives API, which lags by up to ~15 minutes, is only
+    used as a fallback when the live channel is unavailable.
+    """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name="alnor_econet",
             update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
@@ -123,6 +61,15 @@ class AlnorEconetCoordinator(DataUpdateCoordinator[dict[str, float | int]]):
         self.installation_id = entry.data[CONF_INSTALLATION_ID]
         self.factory_number = entry.data[CONF_FACTORY_NUMBER]
         self._cognito = None  # pycognito.Cognito, created in executor
+        self.optimistic_overrides: dict[str, dict] = {}
+        self.live_active = False
+        self._live = AlnorLiveClient(
+            hass.loop,
+            hass.async_add_executor_job,
+            self._valid_id_token,
+            self.installation_id,
+            self._handle_live_update,
+        )
 
     # --- auth (pycognito is sync -> run in executor) ---------------------
     def _authenticate(self) -> None:
@@ -135,77 +82,111 @@ class AlnorEconetCoordinator(DataUpdateCoordinator[dict[str, float | int]]):
         self._cognito = u
 
     def _valid_id_token(self) -> str:
+        """Return a usable ID token (blocking)."""
         if self._cognito is None:
             self._authenticate()
         else:
-            self._cognito.check_token()  # refreshes if expired
+            try:
+                self._cognito.check_token()  # refreshes if expired
+            except Exception:  # noqa: BLE001 - e.g. refresh token invalidated
+                self._authenticate()
         return self._cognito.id_token
 
     async def _async_token(self) -> str:
         return await self.hass.async_add_executor_job(self._valid_id_token)
 
+    # --- live channel ----------------------------------------------------
+    async def _async_live_values(self) -> dict | None:
+        """Read all registers live; None if the live channel is unavailable."""
+        for attempt in (1, 2):
+            try:
+                return await self._live.get_values(self.factory_number, READ_REGISTERS)
+            except LiveError as err:
+                if attempt == 2:
+                    if self.live_active or self.data is None:
+                        _LOGGER.warning(
+                            "Live channel unavailable, using the delayed archive: %s", err
+                        )
+                    return None
+        return None
+
+    def _handle_live_update(self, component: str, values: dict) -> None:
+        """The unit pushed changed values (runs in the event loop)."""
+        if component != self.factory_number or self.data is None:
+            return
+        for key in values:
+            # A pushed change is newer than anything we assumed.
+            self.optimistic_overrides.pop(key, None)
+        self.data.update(values)
+        self.async_update_listeners()
+
+    async def async_set_parameter(self, parameter, value, installation_id, factory_number):
+        """Write a parameter to the unit."""
+        try:
+            result = await self._live.modify(factory_number, {parameter: str(value)})
+        except LiveError as err:
+            # Nothing was confirmed: drop the optimistic value and re-read.
+            self.optimistic_overrides.pop(parameter, None)
+            await self.async_request_refresh()
+            raise HomeAssistantError(f"Could not reach the unit: {err}") from err
+        if result.get("statusCode") != 0:
+            _LOGGER.warning("Unit rejected %s=%s: %s", parameter, value, result)
+
+    async def async_shutdown(self) -> None:
+        await super().async_shutdown()
+        await self._live.close()
+
     # --- polling ---------------------------------------------------------
     async def _async_update_data(self) -> dict[str, float | int]:
-        try:
+        current_time = time.time()
+        latest = await self._async_live_values()
 
-            token = await self._async_token()
+        if latest is not None:
+            if not self.live_active:
+                _LOGGER.info("Live channel active")
+            self.live_active = True
+            # Live reads are current; only mask them briefly after a write so
+            # a read racing the write cannot flip the entity back.
+            for k, v in list(self.optimistic_overrides.items()):
+                if current_time - v["timestamp"] < OPTIMISTIC_LIVE_SECONDS:
+                    latest[k] = v["value"]
+                else:
+                    del self.optimistic_overrides[k]
+            return latest
 
-        except Exception as err:
+        self.live_active = False
+        latest, sample_times = await self._async_archive_values()
 
-            if "NotAuthorizedException" in str(err) or "Invalid Refresh Token" in str(err):
-
-                def _force_reauth():
-
-                    from pycognito import Cognito
-
-                    user = self.config_entry.data.get("username", self.config_entry.data.get("email"))
-
-                    pwd = self.config_entry.data.get("password")
-
-                    cog = Cognito("eu-central-1_que8JCEVH", "3qga0ntgrj7fblcgau24plp2h4", username=user)
-
-                    cog.authenticate(password=pwd)
-
-                    return cog
-
-                
-
-                fresh_cog = await self.hass.async_add_executor_job(_force_reauth)
-
-                
-
-                # Hot-swap the dead session in memory
-
-                if hasattr(self, "_cognito"):
-
-                    self._cognito = fresh_cog
-
-                elif hasattr(self, "cognito"):
-
-                    self.cognito = fresh_cog
-
-                    
-
-                # Attempt to grab the token natively, or fallback to the newly minted access token
-
-                try:
-
-                    token = await self._async_token()
-
-                except Exception:
-
-                    token = fresh_cog.access_token
-
+        # The archive is uploaded by the unit in ~15 minute batches, so a value
+        # written from HA stays stale in the API for up to that long. Hold the
+        # optimistic value until the archive holds a sample taken after the
+        # write (or a timeout passes), instead of reverting to the stale one.
+        for k, v in list(self.optimistic_overrides.items()):
+            age = current_time - v["timestamp"]
+            sample_time = sample_times.get(k)
+            if sample_time is None:
+                # Register is not archived at all: nothing will ever confirm it.
+                expired = age >= OPTIMISTIC_UNARCHIVED_SECONDS
             else:
+                expired = sample_time > v["timestamp"] or age >= OPTIMISTIC_MAX_SECONDS
+            if expired:
+                del self.optimistic_overrides[k]
+            else:
+                latest[k] = v["value"]
+        return latest
 
-                raise UpdateFailed(f"Cognito auth failed: {err}") from err
+    async def _async_archive_values(self) -> tuple[dict, dict]:
+        try:
+            token = await self._async_token()
+        except Exception as err:
+            raise UpdateFailed(f"Cognito auth failed: {err}") from err
 
         now = datetime.now(timezone.utc)
         frm = now - timedelta(minutes=LOOKBACK_MINUTES)
         body = {
             "range": [_iso(frm), _iso(now)],
             "targets": [
-                {"factoryNumber": self.factory_number, "parameters": list(set(ALL_REGISTERS + ["u7074", "u7073", "u6630", "u6240", "u84"]))}
+                {"factoryNumber": self.factory_number, "parameters": READ_REGISTERS}
             ],
             "rawData": False,
         }
@@ -220,30 +201,7 @@ class AlnorEconetCoordinator(DataUpdateCoordinator[dict[str, float | int]]):
                 payload = await resp.json()
         except aiohttp.ClientError as err:
             raise UpdateFailed(f"Request error: {err}") from err
-        latest, sample_times = _latest_values(payload)
-
-        if not hasattr(self, "optimistic_overrides"):
-            self.optimistic_overrides = {}
-
-        # The archive is uploaded by the unit in ~15 minute batches, so a value
-        # written from HA stays stale in the API for up to that long. Hold the
-        # optimistic value until the archive holds a sample taken after the
-        # write (or a timeout passes), instead of reverting to the stale one.
-        import time
-        current_time = time.time()
-        for k, v in list(self.optimistic_overrides.items()):
-            age = current_time - v["timestamp"]
-            sample_time = sample_times.get(k)
-            if sample_time is None:
-                # Register is not archived at all: nothing will ever confirm it.
-                expired = age >= OPTIMISTIC_UNARCHIVED_SECONDS
-            else:
-                expired = sample_time > v["timestamp"] or age >= OPTIMISTIC_MAX_SECONDS
-            if expired:
-                del self.optimistic_overrides[k]
-            else:
-                latest[k] = v["value"]
-        return latest
+        return _latest_values(payload)
 
 
 def _iso(dt: datetime) -> str:

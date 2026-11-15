@@ -1,6 +1,6 @@
 # Alnor ecoNet Custom Component for Home Assistant
 
-A robust, fully-featured custom integration for Alnor Heat Recovery Units (HRU) utilizing the ecoNet web platform. This integration establishes a reliable connection to the Alnor AWS Cognito backend and Archives API to bring complete monitoring and control of your recuperator into Home Assistant.
+An unofficial custom integration for Alnor Heat Recovery Units (HRU) connected to the ecoNet cloud (air.alnor.com.pl). It talks to the unit over the same live MQTT channel the Alnor web portal uses, so Home Assistant shows current values and can control the unit.
 
 ## Overview
 
@@ -12,11 +12,11 @@ A robust, fully-featured custom integration for Alnor Heat Recovery Units (HRU) 
 
 ## Key Features
 
-* **Bulletproof Authentication:** Integrates native AWS Cognito session management with a self-healing background re-authentication mechanism to gracefully handle 30-day refresh token invalidations.
-* **Instant UI Feedback:** Values changed from Home Assistant are shown immediately and held until the cloud archive confirms them, masking the archive's upload lag.
-* **Bitmask State Tracking:** Intelligently reads the underlying `u7151` bitmask register to accurately report the true state of write-only toggles (Fireplace, Schedule, Auto Mode) upon boot.
-* **Comprehensive Sensor Suite:** Tracks inlet/exhaust temperatures, supply/exhaust fan percentages, actual m³/h airflows, bypass state, CO2 levels, and humidity.
-* **Full Control Set:** Toggle Unit Power, Auto Mode, Fireplace Mode, Schedule Mode, and adjust Operating / Time modes via dropdowns.
+* **Live data:** values are read from the unit directly and the unit pushes changes every few seconds, so a mode changed on the wall panel or in the Alnor app shows up in Home Assistant almost immediately.
+* **Real control state:** Unit State, Auto Mode, Schedule Mode, Operating Mode and Time Mode reflect what the unit actually reports.
+* **Automatic fallback:** if the live channel is unavailable, sensor values are taken from the (delayed) cloud archive until it comes back.
+* **Self-healing authentication:** AWS Cognito sessions are refreshed and re-established automatically.
+* **Comprehensive sensor suite:** inlet/exhaust/supply/extract temperatures, fan percentages, airflows, bypass state, CO2 and humidity.
 
 ## Installation
 
@@ -42,7 +42,8 @@ Your credentials are stored only in your Home Assistant config entry and are sen
 
 ## Limitations
 
-* **Data is delayed.** The unit uploads readings to the cloud archive in batches roughly every 15 minutes, so a change made on the unit itself (wall panel, Alnor app) can take that long to appear in Home Assistant.
+* **Fireplace Mode is unverified.** The meaning of the values the unit reports for this register has not been confirmed, so the switch state may be wrong.
+* **Archive fallback is delayed.** While the live channel is down, values come from the cloud archive, which the unit only updates about every 15 minutes, and the control switches show as unknown.
 * This is an unofficial integration, not affiliated with or endorsed by Alnor or Plum. It relies on an undocumented cloud API that may change without notice.
 
 ## Dashboard Configuration
