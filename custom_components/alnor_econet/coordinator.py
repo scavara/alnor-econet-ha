@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -179,6 +179,9 @@ class AlnorEconetCoordinator(DataUpdateCoordinator[dict[str, float | int]]):
         try:
             token = await self._async_token()
         except Exception as err:
+            if "NotAuthorizedException" in f"{type(err).__name__} {err}":
+                # Wrong/changed password: ask the user to sign in again.
+                raise ConfigEntryAuthFailed("Alnor account rejected the password") from err
             raise UpdateFailed(f"Cognito auth failed: {err}") from err
 
         now = datetime.now(timezone.utc)

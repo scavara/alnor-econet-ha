@@ -45,6 +45,10 @@ An unofficial custom integration for Alnor Heat Recovery Units (HRU) connected t
    * **Email / Password** – your [air.alnor.com.pl](https://air.alnor.com.pl) account.
    * **Installation ID** and **Factory number** – open your unit in the Alnor web portal and read them from the address bar: `/i/<installation_id>/details/...`. The installation ID is a GUID; the factory number is the unit's serial number shown in the portal.
 
+### Changing the password or email
+
+Open **Settings** > **Devices & Services** > **Alnor ecoNet (HRU)**, select the **⋮** menu of the entry and choose **Reconfigure**. If the stored password stops working, Home Assistant also asks you to sign in again on its own.
+
 Your credentials are stored only in your Home Assistant config entry and are sent only to the Alnor / ecoNet cloud.
 
 ## Limitations

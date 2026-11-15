@@ -9,5 +9,5 @@
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/scavara/alnor-econet-ha/issues",
   "requirements": ["pycognito==2024.5.1", "boto3", "awsiotsdk"],
-  "version": "0.3.1"
+  "version": "0.3.2"
 }

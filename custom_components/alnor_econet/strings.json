@@ -10,13 +10,30 @@
           "installation_id": "Installation ID (GUID)",
           "factory_number": "Factory number"
         }
+      },
+      "reconfigure": {
+        "title": "Update Alnor account",
+        "description": "Enter the email and password of your air.alnor.com.pl account.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "The stored password for {email} no longer works. Enter the current password.",
+        "data": {
+          "password": "Password"
+        }
       }
     },
     "error": {
       "invalid_auth": "Authentication failed — check email and password."
     },
     "abort": {
-      "already_configured": "This HRU is already configured."
+      "already_configured": "This HRU is already configured.",
+      "reconfigure_successful": "Account details updated.",
+      "reauth_successful": "Signed in again."
     }
   }
 }
