@@ -13,7 +13,7 @@ An unofficial custom integration for Alnor Heat Recovery Units (HRU) connected t
 ## Key Features
 
 * **Live data:** values are read from the unit directly and the unit pushes changes every few seconds, so a mode changed on the wall panel or in the Alnor app shows up in Home Assistant almost immediately.
-* **Real control state:** Unit State, Auto Mode, Schedule Mode, Operating Mode and Time Mode reflect what the unit actually reports.
+* **Real control state:** Unit State, Auto Mode, Schedule Mode, Fireplace Mode, Operating Mode and Time Mode reflect what the unit actually reports.
 * **Automatic fallback:** if the live channel is unavailable, sensor values are taken from the (delayed) cloud archive until it comes back.
 * **Self-healing authentication:** AWS Cognito sessions are refreshed and re-established automatically.
 * **Comprehensive sensor suite:** inlet/exhaust/supply/extract temperatures, fan percentages, airflows, bypass state, CO2 and humidity.
@@ -49,7 +49,6 @@ Your credentials are stored only in your Home Assistant config entry and are sen
 
 ## Limitations
 
-* **Fireplace Mode is unverified.** The meaning of the values the unit reports for this register has not been confirmed, so the switch state may be wrong.
 * **Archive fallback is delayed.** While the live channel is down, values come from the cloud archive, which the unit only updates about every 15 minutes, and the control switches show as unknown.
 * This is an unofficial integration, not affiliated with or endorsed by Alnor or Plum. It relies on an undocumented cloud API that may change without notice.
 

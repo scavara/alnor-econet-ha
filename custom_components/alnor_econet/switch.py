@@ -3,11 +3,13 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 
+# Commands use the unit's "H<bits to set>L<bits to clear>" format.
+# Fireplace is bit 4 of u6240 (the register reads 1 when off and 5 when on).
 SWITCH_TYPES = {
     "u7074": {"name": "Unit State", "icon": "mdi:power", "on_cmd": "H1L0", "off_cmd": "H0L1", "on_val": "1", "off_val": "0"},
     "u7073": {"name": "Auto Mode", "icon": "mdi:refresh-auto", "on_cmd": "H1L0", "off_cmd": "H0L1", "on_val": "1", "off_val": "0"},
     "u6630": {"name": "Schedule Mode", "icon": "mdi:calendar-clock", "on_cmd": "H1L0", "off_cmd": "H0L1", "on_val": "1", "off_val": "0"},
-    "u6240": {"name": "Fireplace Mode", "icon": "mdi:fireplace", "on_cmd": "H0L4", "off_cmd": "H0L1", "on_val": "4", "off_val": "0"},
+    "u6240": {"name": "Fireplace Mode", "icon": "mdi:fireplace", "on_cmd": "H4L0", "off_cmd": "H0L4", "on_val": "4", "off_val": "0", "bit": 4},
 }
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -51,8 +53,9 @@ class AlnorSwitch(CoordinatorEntity, SwitchEntity):
                 return write_val == self._conf["on_cmd"]
             try:
                 num = int(float(write_val))
-                if self._key == "u6240":
-                    return num == 4
+                bit = self._conf.get("bit")
+                if bit:
+                    return bool(num & bit)
                 return num > 0
             except (ValueError, TypeError):
                 return str(write_val) == str(self._conf["on_val"])
