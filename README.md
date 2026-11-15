@@ -20,9 +20,16 @@ An unofficial custom integration for Alnor Heat Recovery Units (HRU) connected t
 
 ## Installation
 
-### HACS (recommended)
+### Marketplace (Home Assistant 2026.11 and newer)
 
-1. In Home Assistant open **HACS** > **⋮** (top right) > **Custom repositories**.
+1. In Home Assistant go to **Settings** > **Marketplace**.
+2. In the upper-right corner select **Add from link**.
+3. Enter `https://github.com/scavara/alnor-econet-ha` (or `scavara/alnor-econet-ha`). Adding a repository by link requires connecting the Marketplace to your GitHub account the first time.
+4. Install **Alnor ecoNet (HRU)** and restart Home Assistant.
+
+### HACS (Home Assistant 2026.10 and older)
+
+1. Open **HACS** > **⋮** (top right) > **Custom repositories**.
 2. Paste `https://github.com/scavara/alnor-econet-ha`, choose type **Integration** and click **Add**.
 3. Find **Alnor ecoNet (HRU)** in HACS, click **Download**, then restart Home Assistant.
 

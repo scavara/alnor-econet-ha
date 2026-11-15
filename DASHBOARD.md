@@ -4,8 +4,8 @@ To replicate the official Alnor web portal UI, you can configure a custom "Sideb
 
 ## 1. Prerequisites
 You must install the **ApexCharts Card** to render the multi-axis historical data chart.
-1. Go to **HACS** > **Frontend**.
-2. Search for **ApexCharts Card** and click **Download**.
+1. Go to **Settings** > **Marketplace** (on Home Assistant 2026.10 and older: **HACS** > **Frontend**).
+2. Search for **ApexCharts Card** and install it.
 3. Reload your browser window.
 
 ## 2. Configure the Dashboard View
